@@ -274,3 +274,47 @@ export async function mutate(
   });
   return { dataHandles: [handle] };
 }
+
+/** Write a single-object drill-down detail result and return its handle. */
+export async function detail(
+  context: MethodContext,
+  kind: string,
+  id: string,
+  data: unknown,
+): Promise<{ dataHandles: DataHandle[] }> {
+  const handle = await context.writeResource("detail", `${kind}-${id}`, {
+    baseUrl: context.globalArgs.baseUrl,
+    kind,
+    id,
+    data,
+    capturedAt: new Date().toISOString(),
+  });
+  context.logger.info("{kind} {id} fetched", { kind, id });
+  return { dataHandles: [handle] };
+}
+
+/** GraphQL query backing `getAsset` — full detail for one asset by id. */
+export function assetDetailQuery(id: string): string {
+  return `query GetAssetDetail {
+  conditionalTable(
+    query: {filters: [{index: 0, field: "id", expression: "Exact", value: ${
+    JSON.stringify(id)
+  }, op: "AND", conditionTypeValue: "single"}], systemFilters: [], globalSearch: ""}
+    pagination: {pageNumber: 1, pageSize: 1, sortBy: "riskLevel_desc"}
+  ) {
+    data {
+      id uuid key isOnline blocking icon type subType riskLevel approved status
+      isRiskAccepted transport version assignedName isMissingInformation
+      assetDisplayName iconDescription group vendor locationsDisplay
+      allAssetTypeDetail
+      connectionData {
+        protocol versionSNMP domainName domainId ipAddress pollingGroupId
+        snmpLocation
+      }
+      tagsView { name id }
+    }
+    recordsFiltered
+    recordsTotal
+  }
+}`;
+}

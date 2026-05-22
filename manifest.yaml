@@ -1,6 +1,6 @@
 manifestVersion: 1
 name: "@dougschaefer/cybriq"
-version: "2026.05.22.2"
+version: "2026.05.22.3"
 description: "Integrate with a CybrIQ (Sepio) asset-visibility / hardware-access-control platform over its REST + GraphQL API. Local-login bearer auth with vault-resolved credentials. Read the asset dashboard, inventory, device types, risk insights, events, alarm destinations, policies, scopes, tags, and user attributes; create tags, user attributes, policies, and scopes; and reach any other endpoint through a generic authenticated passthrough."
 repository: https://github.com/dougschaefer6/swamp-cybriq
 additionalFiles:
