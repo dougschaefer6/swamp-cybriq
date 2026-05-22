@@ -33,7 +33,7 @@ import {
  */
 export const model = {
   type: "@dougschaefer/cybriq",
-  version: "2026.05.22.3",
+  version: "2026.05.22.4",
   globalArguments: CybriqGlobalArgsSchema,
   resources: {
     status: {
