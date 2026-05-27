@@ -29,7 +29,7 @@ export const CybriqGlobalArgsSchema = z.object({
   baseUrl: z.string().describe(
     "Base URL of the CybrIQ/Sepio instance, e.g. https://<tenant>.sepiopoc.com",
   ),
-  username: z.string().describe(
+  username: z.string().meta({ sensitive: true }).describe(
     "Local-auth username. Use: ${{ vault.get(<vault>, cybriq-api-user) }}",
   ),
   password: z.string().meta({ sensitive: true }).describe(

@@ -33,7 +33,7 @@ import {
  */
 export const model = {
   type: "@dougschaefer/cybriq",
-  version: "2026.05.22.4",
+  version: "2026.05.27.1",
   globalArguments: CybriqGlobalArgsSchema,
   resources: {
     status: {
@@ -323,14 +323,19 @@ export const model = {
           vulnerablePeripherals:
             "/prime/webui/agents/RiskInsights/VulnerablePeripherals",
         };
-        const raw: Record<string, unknown> = {};
-        for (const [key, path] of Object.entries(endpoints)) {
-          try {
-            raw[key] = (await apiFetch(g, "GET", path, { token })).data;
-          } catch (e) {
-            raw[key] = { error: e instanceof Error ? e.message : String(e) };
-          }
-        }
+        const results = await Promise.all(
+          Object.entries(endpoints).map(async ([key, path]) => {
+            try {
+              const { data } = await apiFetch(g, "GET", path, { token });
+              return [key, data] as const;
+            } catch (e) {
+              return [key, {
+                error: e instanceof Error ? e.message : String(e),
+              }] as const;
+            }
+          }),
+        );
+        const raw: Record<string, unknown> = Object.fromEntries(results);
         return collect(context, "riskInsights", [], raw);
       },
     },
@@ -498,7 +503,7 @@ export const model = {
 
     createTag: {
       description:
-        "Create a tag by name (tagsApi/tags/add-tag/{tagName}). Mutating.",
+        "Create a tag by name (tagsApi/tags/add-tag/{tagName}). Idempotent — already-exists converges on the existing tag. Mutating.",
       arguments: z.object({
         tagName: z.string().min(1).describe("Tag name to create"),
       }),
@@ -508,15 +513,35 @@ export const model = {
       ): Promise<{ dataHandles: DataHandle[] }> => {
         const g = context.globalArgs;
         const { token } = await login(g);
-        const { status, data } = await apiFetch(
-          g,
-          "POST",
-          `/prime/webui/tagsApi/tags/add-tag/${
-            encodeURIComponent(args.tagName)
-          }`,
-          { token },
-        );
-        return mutate(context, "createTag", args.tagName, status, data);
+        try {
+          const { status, data } = await apiFetch(
+            g,
+            "POST",
+            `/prime/webui/tagsApi/tags/add-tag/${
+              encodeURIComponent(args.tagName)
+            }`,
+            { token },
+          );
+          return mutate(context, "createTag", args.tagName, status, data);
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          // Sepio returns 409 or a message containing "already exists" / "duplicate"
+          // when the tag is present — converge rather than fail.
+          if (/409|already exist|duplicate/i.test(msg)) {
+            context.logger.info("Tag '{tagName}' already exists — no change", {
+              tagName: args.tagName,
+            });
+            // Fetch current tag list to return a handle for the existing tag.
+            const { data: listData } = await apiFetch(
+              g,
+              "GET",
+              "/prime/webui/tagsApi/tags",
+              { token },
+            );
+            return mutate(context, "createTag", args.tagName, 200, listData);
+          }
+          throw err;
+        }
       },
     },
 
@@ -867,7 +892,7 @@ export const model = {
 
     apiRequest: {
       description:
-        "Generic authenticated request to any CybrIQ endpoint (all /prime/webui/* REST routes or /sepio-data). Logs in, attaches the bearer token, returns the JSON response.",
+        "Generic authenticated passthrough to any CybrIQ endpoint (all /prime/webui/* REST routes or /sepio-data). Logs in, attaches the bearer token, returns the JSON response.",
       arguments: z.object({
         method: z.enum(["GET", "POST", "PUT", "DELETE", "PATCH"]).default("GET")
           .describe("HTTP method"),
@@ -897,7 +922,17 @@ export const model = {
           query: args.query,
           body: args.body,
         });
-        const handle = await context.writeResource("apiResult", "last", {
+        // Derive a stable, unique resource name from method + path + timestamp so
+        // successive apiRequest calls don't overwrite each other.
+        const pathSlug = args.path
+          .replace(/^https?:\/\/[^/]+/, "")
+          .replace(/[^a-zA-Z0-9-]/g, "-")
+          .replace(/-+/g, "-")
+          .slice(0, 60)
+          .replace(/^-|-$/g, "");
+        const resourceName =
+          `${args.method.toLowerCase()}-${pathSlug}-${Date.now()}`;
+        const handle = await context.writeResource("apiResult", resourceName, {
           method: args.method,
           path: args.path,
           status,
@@ -910,6 +945,36 @@ export const model = {
           status,
         });
         return { dataHandles: [handle] };
+      },
+    },
+  },
+
+  checks: {
+    "auth-reachable": {
+      description:
+        "Verify CybrIQ authentication succeeds before mutating platform state.",
+      labels: ["live"],
+      appliesTo: [
+        "createTag",
+        "addUserAttribute",
+        "createPolicy",
+        "createScope",
+        "triggerReport",
+      ],
+      execute: async (context) => {
+        try {
+          await login(context.globalArgs);
+          return { pass: true };
+        } catch (err) {
+          return {
+            pass: false,
+            errors: [
+              `CybrIQ authentication failed — check baseUrl and credentials: ${
+                String(err)
+              }`,
+            ],
+          };
+        }
       },
     },
   },
