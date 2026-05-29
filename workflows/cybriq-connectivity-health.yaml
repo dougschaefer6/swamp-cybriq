@@ -1,0 +1,81 @@
+id: 7328bc9c-e489-4068-bb76-f2720b9ed3b2
+name: "@dougschaefer/cybriq-connectivity-health"
+description: >-
+  Snapshot the health of a CybrIQ (Sepio) deployment: confirm authentication,
+  list external scan engines (Netpollers) with their connection/activation
+  status, capture every switch's polling/connection state, surface recent
+  "Switch Unable to Connect" events, and pull the asset/risk overview. Read-only.
+  Steps run sequentially because they target one model instance and would
+  otherwise contend on the per-model lock. Pass the name of your
+  @dougschaefer/cybriq model instance via the `instance` input.
+tags: {}
+inputs:
+  properties:
+    instance:
+      type: string
+      default: cybriq
+      description: Name of the @dougschaefer/cybriq model instance to query
+    eventSearch:
+      type: string
+      default: Unable to Connect
+      description: Free-text filter applied to the connectivity event scan
+    eventPageSize:
+      type: integer
+      default: 50
+      description: Number of connectivity events to retrieve
+jobs:
+  - name: snapshot
+    description: Read-only CybrIQ connectivity + risk snapshot
+    steps:
+      - name: auth
+        description: Authenticate and confirm account/license status
+        task:
+          type: model_method
+          modelIdOrName: ${{ inputs.instance }}
+          methodName: getStatus
+      - name: scan-engines
+        description: List external scan engines (Netpollers) and connection status
+        dependsOn:
+          - step: auth
+            condition:
+              type: succeeded
+        task:
+          type: model_method
+          modelIdOrName: ${{ inputs.instance }}
+          methodName: listScanEngines
+      - name: switches
+        description: >-
+          List switches with polling/connection data (lastSeen, swPollingStatus,
+          pollingGroupName)
+        dependsOn:
+          - step: scan-engines
+            condition:
+              type: succeeded
+        task:
+          type: model_method
+          modelIdOrName: ${{ inputs.instance }}
+          methodName: listSwitches
+      - name: connectivity-events
+        description: Surface recent connectivity events (e.g. Switch Unable to Connect)
+        dependsOn:
+          - step: switches
+            condition:
+              type: succeeded
+        task:
+          type: model_method
+          modelIdOrName: ${{ inputs.instance }}
+          methodName: listEvents
+          inputs:
+            globalSearch: ${{ inputs.eventSearch }}
+            pageSize: ${{ inputs.eventPageSize }}
+      - name: overview
+        description: Pull the asset/risk dashboard rollup
+        dependsOn:
+          - step: connectivity-events
+            condition:
+              type: succeeded
+        task:
+          type: model_method
+          modelIdOrName: ${{ inputs.instance }}
+          methodName: assetsOverview
+version: 1

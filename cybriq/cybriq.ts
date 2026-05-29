@@ -20,7 +20,8 @@ import {
  * It authenticates with a local login (username/password → short-lived bearer
  * JWT) and then reads or changes platform state. Read methods cover the
  * dashboard (`getStatus`, `assetsOverview`), inventory (`listAssets`,
- * `listDeviceTypes`), risk analysis (`analyzeRisks`), the event log
+ * `listDeviceTypes`), risk analysis (`analyzeRisks`), network infrastructure
+ * (`listSwitches`, `listScanEngines`), the event log
  * (`listEvents`, `listAlarmDestinations`), and the policy/governance objects
  * (`listPolicies`, `listScopes`, `listTags`, `listUserAttributes`). Mutating
  * methods create tags, user attributes, policies, and scopes. `apiRequest` is
@@ -33,7 +34,7 @@ import {
  */
 export const model = {
   type: "@dougschaefer/cybriq",
-  version: "2026.05.27.1",
+  version: "2026.05.29.1",
   globalArguments: CybriqGlobalArgsSchema,
   resources: {
     status: {
@@ -672,6 +673,26 @@ export const model = {
           `${args.switchDataId}-${args.portDataId}`,
           data,
         );
+      },
+    },
+
+    listScanEngines: {
+      description:
+        "List external scan engines (Netpollers) the platform knows about, with connection status, admin/activation status, poller health (alive/total), version, CPU, utilization, and error count (Switches/NetPollers). Note: scan engines are NOT host agents — they do not appear in listAgents.",
+      arguments: z.object({}),
+      execute: async (
+        _args: Record<string, never>,
+        context: MethodContext,
+      ): Promise<{ dataHandles: DataHandle[] }> => {
+        const g = context.globalArgs;
+        const { token } = await login(g);
+        const { data } = await apiFetch(
+          g,
+          "GET",
+          "/prime/webui/Switches/NetPollers",
+          { token },
+        );
+        return collect(context, "scanEngines", data);
       },
     },
 
